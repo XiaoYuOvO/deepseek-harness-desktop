@@ -101,11 +101,19 @@ pub fn path_registered(app_handle: &AppHandle) -> bool {
             .path()
             .home_dir()
             .unwrap_or_else(|_| PathBuf::from("."));
-        RC_FILES.iter().any(|name| {
+        let in_rc = RC_FILES.iter().any(|name| {
             fs::read_to_string(home.join(name))
                 .map(|content| content.contains(RC_MARK_START))
                 .unwrap_or(false)
-        })
+        });
+        if in_rc {
+            return true;
+        }
+        // 3. fish 配置文件
+        let fish_conf = home.join(".config/fish/conf.d/deepseek-harness.fish");
+        fs::read_to_string(&fish_conf)
+            .map(|content| content.contains(RC_MARK_START))
+            .unwrap_or(false)
     }
 }
 
@@ -390,7 +398,12 @@ fn remove_path_token(path_value: &str, token: &str) -> String {
 // Unix shell rc 辅助
 // ---------------------------------------------------------------------------
 
-/// Unix：向 `~/.zshrc` / `~/.bashrc` 幂等注入 `~/.local/bin` 的 PATH 导出
+/// Unix：向已有的 shell rc 文件幂等注入 `~/.local/bin` 的 PATH 导出。
+///
+/// 仅对已存在的 rc 文件追加（不主动创建 `~/.zshrc` / `~/.bashrc`），避免在
+/// 用户不使用 bash/zsh 的系统上凭空创建文件干扰默认 shell 行为。
+/// 同时检测 `$SHELL` 环境变量：若用户 shell 是 fish，额外写入
+/// `~/.config/fish/conf.d/` 下的 .fish 文件。
 #[cfg(not(windows))]
 fn inject_shell_rc(app_handle: &AppHandle) -> Result<(), String> {
     let home = app_handle
@@ -401,8 +414,13 @@ fn inject_shell_rc(app_handle: &AppHandle) -> Result<(), String> {
         "{RC_MARK_START}\nexport PATH=\"$HOME/.local/bin:$PATH\"\n{RC_MARK_END}\n"
     );
 
+    let mut injected_any = false;
     for name in RC_FILES {
         let rc_path = home.join(name);
+        // 仅对已存在的 rc 文件注入，不主动创建
+        if !rc_path.is_file() {
+            continue;
+        }
         let mut content = fs::read_to_string(&rc_path).unwrap_or_default();
         if content.contains(RC_MARK_START) {
             continue;
@@ -414,11 +432,45 @@ fn inject_shell_rc(app_handle: &AppHandle) -> Result<(), String> {
         fs::write(&rc_path, content)
             .map_err(|e| format!("write {} failed: {e}", rc_path.display()))?;
         log::info!("Injected PATH export into {}", rc_path.display());
+        injected_any = true;
+    }
+
+    // fish shell：写入 ~/.config/fish/conf.d/deepseek-harness.fish
+    if is_fish_shell() {
+        let fish_conf_dir = home.join(".config/fish/conf.d");
+        let fish_conf = fish_conf_dir.join("deepseek-harness.fish");
+        if !fish_conf.exists() {
+            let fish_block = format!(
+                "{RC_MARK_START}\nset -gx PATH $HOME/.local/bin $PATH\n{RC_MARK_END}\n"
+            );
+            fs::create_dir_all(&fish_conf_dir)
+                .map_err(|e| format!("create fish conf dir failed: {e}"))?;
+            fs::write(&fish_conf, fish_block)
+                .map_err(|e| format!("write fish conf failed: {e}"))?;
+            log::info!("Injected PATH export into {}", fish_conf.display());
+            injected_any = true;
+        }
+    }
+
+    if !injected_any {
+        log::warn!(
+            "No shell rc file found (checked: {}); PATH not injected. \
+             Users should manually add ~/.local/bin to PATH.",
+            RC_FILES.join(", ")
+        );
     }
     Ok(())
 }
 
-/// Unix：从 rc 文件中移除注入块
+/// 判断当前用户 shell 是否为 fish
+#[cfg(not(windows))]
+fn is_fish_shell() -> bool {
+    std::env::var("SHELL")
+        .ok()
+        .is_some_and(|s| s.ends_with("/fish") || s.ends_with("\\fish"))
+}
+
+/// Unix：从 rc 文件中移除注入块（含 fish 配置文件）
 #[cfg(not(windows))]
 fn strip_shell_rc(app_handle: &AppHandle) -> Result<(), String> {
     let home = app_handle
@@ -427,12 +479,32 @@ fn strip_shell_rc(app_handle: &AppHandle) -> Result<(), String> {
         .map_err(|_| "failed to resolve home directory".to_string())?;
     for name in RC_FILES {
         let rc_path = home.join(name);
+        if !rc_path.is_file() {
+            continue;
+        }
         let content = fs::read_to_string(&rc_path).unwrap_or_default();
         let cleaned = strip_rc_block(&content);
         if cleaned != content {
             fs::write(&rc_path, cleaned)
                 .map_err(|e| format!("write {} failed: {e}", rc_path.display()))?;
             log::info!("Removed PATH export from {}", rc_path.display());
+        }
+    }
+
+    // fish 配置文件
+    let fish_conf = home.join(".config/fish/conf.d/deepseek-harness.fish");
+    if fish_conf.is_file() {
+        let content = fs::read_to_string(&fish_conf).unwrap_or_default();
+        let cleaned = strip_rc_block(&content);
+        if cleaned != content {
+            fs::write(&fish_conf, cleaned)
+                .map_err(|e| format!("write {} failed: {e}", fish_conf.display()))?;
+            log::info!("Removed PATH export from {}", fish_conf.display());
+        }
+        // 若清理后文件为空，直接删除（fish conf.d 下的空文件无需保留）
+        let remaining = fs::read_to_string(&fish_conf).unwrap_or_default();
+        if remaining.trim().is_empty() {
+            let _ = fs::remove_file(&fish_conf);
         }
     }
     Ok(())

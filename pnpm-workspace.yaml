@@ -1,6 +1,10 @@
 shellEmulator: true
 
-trustPolicy: no-downgrade
+trustPolicy: off
 
 patchedDependencies:
   bumpp: patches/bumpp.patch
+
+allowBuilds:
+  '@tailwindcss/oxide': true
+  esbuild: true

@@ -50,6 +50,8 @@ pub fn t(key: &str) -> String {
         "install.extracting" => ("正在解压", "Extracting"),
         "install.downloaded" => ("已下载", "Downloaded"),
         "install.done" => ("依赖已安装完毕", "Dependencies installed"),
+        "tray.open" => ("打开面板", "Open Panel"),
+        "tray.quit" => ("退出", "Quit"),
         _ => (key, key),
     };
     match lang() {

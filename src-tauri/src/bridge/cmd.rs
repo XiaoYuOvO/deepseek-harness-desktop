@@ -354,17 +354,22 @@ pub async fn reveal_data_dir(app_handle: AppHandle) -> Result<(), String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?;
 
-    if cfg!(windows) {
+    #[cfg(windows)]
+    {
         std::process::Command::new("explorer")
             .arg(&app_data_dir)
             .spawn()
             .map_err(|e| e.to_string())?;
-    } else if cfg!(target_os = "macos") {
+    }
+    #[cfg(target_os = "macos")]
+    {
         std::process::Command::new("open")
             .arg(&app_data_dir)
             .spawn()
             .map_err(|e| e.to_string())?;
-    } else {
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
         std::process::Command::new("xdg-open")
             .arg(&app_data_dir)
             .spawn()

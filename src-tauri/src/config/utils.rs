@@ -1,20 +1,34 @@
 use std::path::{Path, PathBuf};
 
+/// 获取当前用户主目录下的 Downloads 目录（跨平台）。
+///
+/// - Windows: `%USERPROFILE%\Downloads`
+/// - macOS/Linux: `$HOME/Downloads`
+/// - 均无法获取时回退到当前工作目录
+fn default_downloads_dir() -> PathBuf {
+    use std::env;
+
+    let home = if cfg!(windows) {
+        env::var("USERPROFILE").ok()
+    } else {
+        env::var("HOME").ok()
+    };
+
+    home.map(PathBuf::from)
+        .map(|h| h.join("Downloads"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// 生成不冲突的下载路径：目标已存在时按 `name (n).ext` 递增命名，
 /// 与浏览器下载管理器的重名行为保持一致。
 ///
-/// `destination` 是 WebView2 给出的默认保存路径（系统下载目录 + 文件名），
-/// 父目录不存在时回退到 `%USERPROFILE%\Downloads`。
+/// `destination` 是 WebView 给出的默认保存路径（系统下载目录 + 文件名），
+/// 父目录不存在时回退到各平台的默认下载目录。
 pub fn unique_download_path(destination: &Path) -> PathBuf {
-    use std::env;
-
     let dir = match destination.parent() {
         Some(parent) if parent.is_dir() => parent.to_path_buf(),
-        // 下载目录不存在（如被用户删除）时兜底到 USERPROFILE\Downloads
-        _ => env::var("USERPROFILE")
-            .map(PathBuf::from)
-            .map(|home| home.join("Downloads"))
-            .unwrap_or_else(|_| PathBuf::from(".")),
+        // 下载目录不存在（如被用户删除）时兜底到默认下载目录
+        _ => default_downloads_dir(),
     };
     let name = destination
         .file_name()

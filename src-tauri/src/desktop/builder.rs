@@ -48,15 +48,23 @@ pub fn setup(app_handle: tauri::AppHandle) {
 
 /// setup tray
 pub fn tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    // 确保 i18n 语言状态已从持久化设置中恢复（首次调用 get_store_dat_setting
+    // 会读取磁盘上的语言偏好；后续 set_language 由前端交互更新）。
+    let setting = crate::config::get_store_dat_setting(app);
+    crate::config::i18n::set_language(match setting.language.as_str() {
+        "en" | "en-US" => crate::config::i18n::Lang::En,
+        _ => crate::config::i18n::Lang::Zh,
+    });
+
     // 使用默认窗口图标
     let icon = app.default_window_icon().unwrap().clone();
 
-    // 构建菜单
+    // 构建菜单（使用 i18n 而非硬编码中文，保证多语言用户体验一致）
     let menu = Menu::with_items(
         app,
         &[
-            &MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?,
-            &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
+            &MenuItem::with_id(app, "open", &crate::config::i18n::t("tray.open"), true, None::<&str>)?,
+            &MenuItem::with_id(app, "quit", &crate::config::i18n::t("tray.quit"), true, None::<&str>)?,
         ],
     )?;
 

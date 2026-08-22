@@ -127,10 +127,15 @@ pub fn get_node_download_url() -> Result<String, String> {
     let os = env::consts::OS;
 
     // 抽象文件名逻辑
+    // 注意：Linux 官方发行版为 .tar.xz，但项目当前解压流程只支持
+    // .tar.gz / .zip；Node.js 同时提供 .tar.gz 版本（文件名同
+    // .tar.xz 仅后缀不同），这里统一使用 .tar.gz 以复用现有解压逻辑。
     let filename = match (os, arch) {
         ("macos", "aarch64") => format!("node-{}-darwin-arm64.tar.gz", NODE_VERSION),
         ("macos", "x86_64") => format!("node-{}-darwin-x64.tar.gz", NODE_VERSION),
         ("windows", _) => format!("node-{}-win-x64.zip", NODE_VERSION),
+        ("linux", "x86_64") => format!("node-{}-linux-x64.tar.gz", NODE_VERSION),
+        ("linux", "aarch64") => format!("node-{}-linux-arm64.tar.gz", NODE_VERSION),
         _ => return Err(format!("Unsupported platform: {} {}", os, arch)),
     };
 

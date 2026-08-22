@@ -5,16 +5,33 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-/// 递归设置权限 (rwxr-xr-x)
+/// 递归修复权限：目录设为 rwxr-xr-x (0o755)，普通文件按已有可执行位决定权限。
+///
+/// 解压后的文件权限修正策略：
+/// - 目录必须设为 0o755（保证可遍历进入）；
+/// - 普通文件：若 archive 内已标记可执行位（如 node 二进制），保留 0o755；
+///   否则设为 0o644（rw-r--r--，安全默认值）。
+///   这样既保证 node 等可执行文件能正常运行，又避免把所有文件都标为
+///   可执行（原实现一律 0o755 的安全隐患）。
 #[cfg(unix)]
 pub fn fix_recursive_permissions(path: &Path) -> io::Result<()> {
-    // 设置当前路径权限
-    let mut perms = fs::metadata(path)?.permissions();
-    perms.set_mode(0o755);
+    let meta = fs::metadata(path)?;
+    let mut perms = meta.permissions();
+
+    if meta.is_dir() {
+        perms.set_mode(0o755);
+    } else if meta.is_file() {
+        // 保留已有的可执行位；无执行位的文件按安全默认值 644
+        let current_mode = perms.mode();
+        if current_mode & 0o111 != 0 {
+            perms.set_mode(0o755);
+        } else {
+            perms.set_mode(0o644);
+        }
+    }
     fs::set_permissions(path, perms)?;
 
-    // 如果是目录，递归处理子项
-    if path.is_dir() {
+    if meta.is_dir() {
         for entry in fs::read_dir(path)? {
             fix_recursive_permissions(&entry?.path())?;
         }

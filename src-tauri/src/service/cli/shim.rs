@@ -528,6 +528,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn cmd_shim_contains_baked_paths() {
         let content = build_cmd_shim(&sample_app_dir());
         assert!(content.contains(r"C:\Users\test\AppData\Roaming"));
@@ -537,6 +538,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn cmd_shim_escapes_percent() {
         let dir = PathBuf::from(r"C:\Users\100%test\AppData\Roaming\io.github.hairyf.deepseek-harness-desktop");
         let content = build_cmd_shim(&dir);
@@ -545,6 +547,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn pnpm_cmd_shim_contains_user_precedence() {
         let content = build_pnpm_cmd_shim(&sample_app_dir());
         assert!(content.contains("pnpm command shim"));
@@ -557,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn pnpm_ps1_shim_contains_user_precedence() {
         let content = build_pnpm_ps1_shim(&sample_app_dir());
         assert!(content.contains("Get-Command pnpm -All"));
@@ -577,6 +581,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn ps1_shim_escapes_quotes() {
         let dir = PathBuf::from(r"C:\Users\o'brien\AppData\Roaming\io.github.hairyf.deepseek-harness-desktop");
         let content = build_ps1_shim(&dir);
@@ -584,6 +589,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn cmd_shim_prefers_user_dsh() {
         let content = build_cmd_shim(&sample_app_dir());
         assert!(content.contains("USER_DSH"));
@@ -596,6 +602,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn ps1_shim_prefers_user_dsh() {
         let content = build_ps1_shim(&sample_app_dir());
         assert!(content.contains("Get-Command dsh -All"));

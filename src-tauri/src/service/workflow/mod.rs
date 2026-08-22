@@ -22,14 +22,34 @@ use tauri::Manager;
 /// 启动守卫：并发调用 `launch` 时只允许一个真正拉起 dsh 进程
 static LAUNCH_GUARD: AtomicBool = AtomicBool::new(false);
 
+/// 转义 pkill -f 使用的 ERE 元字符，保证安装路径中的 `.` 等字符按字面匹配
+fn escape_regex_literal(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(
+            ch,
+            '.' | '+' | '*' | '?' | '^' | '$' | '[' | ']' | '(' | ')' | '{' | '}' | '|' | '\\'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
+}
+
 /// 强制结束占用指定端口的进程（用于停止服务或清理僵尸进程）
 fn kill_port_holder(port: u16) {
     #[cfg(unix)]
     {
-        // 使用 lsof 找到占用端口的进程并强制结束
+        // 只结束“监听”该端口的进程（即 dsh 服务本身）。
+        // 注意不能裸用 `lsof -i:PORT`：它同时匹配已建立的客户端连接——
+        // 浏览器打开 dsh 页面时持有指向该端口的 WebSocket/SSE/长连接套接字，
+        // 其 PID 同样会出现在输出里，`xargs kill -9` 会把正在访问的浏览器
+        // 进程一并杀掉（桌面端退出/停止服务时浏览器即被强杀）；加 `-sTCP:LISTEN`
+        // 只命中监听者，客户端连接不受影响。
         let _ = Command::new("sh")
             .arg("-c")
-            .arg(format!("lsof -ti:{} | xargs kill -9", port))
+            .arg(format!("lsof -ti:{} -sTCP:LISTEN | xargs kill -9", port))
             .output();
     }
 
@@ -201,7 +221,18 @@ pub async fn launch(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     #[cfg(unix)]
     {
-        let _ = Command::new("pkill").arg("-9").arg("node").output();
+        // 只清理本应用 dsh 安装目录下的残留 node 进程：
+        // `pkill -9 node` 按进程名清杀全系统的 node（用户自己的 vite/pnpm
+        // 服务、其他 dsh 实例等都会被误杀），改用命令行匹配安装路径，
+        // 只命中本应用拉起的 dsh 相关进程。
+        let install_dir = config::get_dsh_install_path(&app_handle)
+            .to_string_lossy()
+            .into_owned();
+        let _ = Command::new("pkill")
+            .arg("-9")
+            .arg("-f")
+            .arg(escape_regex_literal(&install_dir))
+            .output();
     }
 
     // 构造环境变量：隔离的 $DSH_HOME + 隐私默认（关闭遥测）
